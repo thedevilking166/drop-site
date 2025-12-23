@@ -1,65 +1,170 @@
-import Image from "next/image";
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Loader2, Clock, Download, CheckCircle, SquareArrowOutUpRight } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { extractTopicId } from "@/lib/utils"
+import { CollectionSelector } from "@/components/collection-selector"
+import { ThumbnailViewer } from "@/components/thumbnail-viewer"
+import { PaginationControls } from "@/components/pagination-controls"
+import { UrlActions } from "@/components/url-actions"
+
+type UrlRecord = {
+  _id: string
+  post_url: string
+  title: string
+  thumb_url: string
+  stage: "pending" | "extracted" | "complete"
+  createdAt: string
+}
 
 export default function Home() {
+  const [urls, setUrls] = useState<UrlRecord[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [selectedCollection, setSelectedCollection] = useState("new-posts")
+
+  const fetchUrls = async (page = 1) => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`http://localhost:4000/urls?collection=${selectedCollection}&page=${page}&limit=10`)
+      const data = await response.json()
+      setUrls(data.items || [])
+      setTotalPages(data.pages || 1)
+      setCurrentPage(page)
+    } catch (error) {
+      console.error("Error fetching URLs:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchUrls(1)
+  }, [selectedCollection])
+
+  const getStatusBadge = (stage: UrlRecord["stage"]) => {
+    const variants = {
+      pending: { color: "bg-slate-800 text-slate-300 border-slate-700", icon: Clock },
+      extracted: { color: "bg-amber-950 text-amber-300 border-amber-800", icon: Download },
+      complete: { color: "bg-emerald-950 text-emerald-300 border-emerald-800", icon: CheckCircle },
+    }
+
+    const { color, icon: Icon } = variants[stage]
+
+    return (
+      <Badge variant="outline" className={cn("gap-1.5 font-medium", color)}>
+        <Icon className="h-3 w-3" />
+        {stage.charAt(0).toUpperCase() + stage.slice(1)}
+      </Badge>
+    )
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
+      <div className="container mx-auto px-4 py-6 max-w-7xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-100 text-balance">Processing Tracker</h1>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {/* URLs Table */}
+        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-slate-100">Tracked URLs</CardTitle>
+              <CardDescription className="text-slate-400">
+                {urls.length} {urls.length === 1 ? "URL" : "URLs"} on this page
+              </CardDescription>
+            </div>
+
+            <CollectionSelector
+              value={selectedCollection}
+              onValueChange={(value) => {
+                setCurrentPage(1)
+                setSelectedCollection(value)
+              }}
+              disabled={isLoading}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+          </CardHeader>
+
+          <CardContent>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-slate-600" />
+              </div>
+            ) : urls.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-400 text-lg mb-2">No URLs tracked yet</p>
+                <p className="text-slate-600">Add your first URL above to get started</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-slate-800 overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-900/50 border-slate-800 hover:bg-slate-900/50">
+                      <TableHead className="font-semibold text-slate-300">Topic ID</TableHead>
+                      <TableHead className="font-semibold text-slate-300">Thumbnail</TableHead>
+                      <TableHead className="font-semibold text-slate-300">Status</TableHead>
+                      <TableHead className="font-semibold text-slate-300">Unique URL</TableHead>
+                      <TableHead className="font-semibold text-slate-300">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {urls.map((record) => (
+                      <TableRow key={record._id} className="hover:bg-slate-800/50 border-slate-800">
+                        <TableCell className="font-medium">
+                          <code className="text-blue-400 text-sm bg-slate-800 px-2 py-1 rounded">
+                            {extractTopicId(record.post_url) || "N/A"}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <ThumbnailViewer thumbUrl={record.thumb_url} title={record.title} />
+                        </TableCell>
+                        <TableCell>{getStatusBadge(record.stage)}</TableCell>
+                        <TableCell>
+                          {record.title ? (
+                            <a
+                              href={record.post_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 hover:underline truncate block max-w-xs text-sm"
+                            >
+                              <SquareArrowOutUpRight className="inline-block mr-1 h-4 w-4" />
+                            </a>
+                          ) : (
+                            <span className="text-slate-600 text-sm">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <UrlActions
+                            urlId={record._id}
+                            stage={record.stage}
+                            collection={selectedCollection}
+                            onActionComplete={() => fetchUrls(currentPage)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {totalPages > 1 && (
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={fetchUrls}
+                isLoading={isLoading}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
-  );
+  )
 }
