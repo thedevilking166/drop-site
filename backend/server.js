@@ -1,12 +1,75 @@
 import express from "express";
 import cors from "cors";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { query } from "./db.js";
+import "dotenv/config";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const ALLOWED_TABLES = new Set(["new-posts"]);
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "Missing credentials" });
+    }
+
+    const { rows } = await query(
+      `
+      SELECT id, email, password_hash, role, is_active
+      FROM admins
+      WHERE email = $1
+      LIMIT 1
+      `,
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const admin = rows[0];
+
+    if (!admin.is_active) {
+      return res.status(403).json({ message: "Account disabled" });
+    }
+
+    const valid = await bcrypt.compare(password, admin.password_hash);
+    if (!valid) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      {
+        adminId: admin.id,
+        email: admin.email,
+        role: admin.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    query(`UPDATE admins SET last_login_at = now() WHERE id = $1`, [
+      admin.id,
+    ]).catch(console.error);
+
+    res.json({
+      token,
+      admin: {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+      },
+    });
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
+    res.status(500).json({ message: "Login failed" });
+  }
+});
 
 app.get("/urls", async (req, res) => {
   try {
