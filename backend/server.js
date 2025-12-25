@@ -1,29 +1,62 @@
 import express from "express";
 import cors from "cors";
-import { getDb } from "./db.js";
+import { query } from "./db.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+const ALLOWED_TABLES = new Set(["new-posts"]);
+
 app.get("/urls", async (req, res) => {
   try {
-    const { collection = "new-posts", page = 1, limit = 10 } = req.query;
+    const collection = req.query.collection || "new-posts";
+    const status = req.query.status;
 
-    const skip = (page - 1) * limit;
-    const db = await getDb();
-    const col = db.collection(collection);
+    if (!ALLOWED_TABLES.has(collection)) {
+      return res.status(400).json({ error: "Invalid collection" });
+    }
 
-    const [items, total] = await Promise.all([
-      col.find({}).sort({ _id: -1 }).skip(skip).limit(Number(limit)).toArray(),
-      col.countDocuments(),
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const offset = (page - 1) * limit;
+
+    const values = [];
+    let whereClause = "";
+
+    if (status && status !== "all") {
+      values.push(status);
+      whereClause = `WHERE status = $${values.length}`;
+    }
+
+    values.push(limit, offset);
+
+    const itemsQuery = `
+      SELECT *
+      FROM "${collection}"
+      ${whereClause}
+      LIMIT $${values.length - 1}
+      OFFSET $${values.length}
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*)
+      FROM "${collection}"
+      ${whereClause}
+    `;
+
+    const [itemsResult, totalResult] = await Promise.all([
+      query(itemsQuery, values),
+      query(countQuery, values.slice(0, values.length - 2)),
     ]);
 
+    const total = Number(totalResult.rows[0].count);
+
     res.json({
-      items,
+      items: itemsResult.rows,
       total,
-      page: Number(page),
-      limit: Number(limit),
+      page,
+      limit,
       pages: Math.ceil(total / limit),
     });
   } catch (err) {
@@ -32,45 +65,20 @@ app.get("/urls", async (req, res) => {
   }
 });
 
-app.post("/urls", async (req, res) => {
-  try {
-    const { url, collection = "new-posts" } = req.body;
-
-    if (!url) {
-      return res.status(400).json({ error: "URL required" });
-    }
-
-    const db = await getDb();
-    const col = db.collection(collection);
-
-    const result = await col.insertOne({
-      post_url: url,
-      stage: "pending",
-      createdAt: new Date(),
-    });
-
-    res.json({ success: true, id: result.insertedId });
-  } catch (err) {
-    if (err.code === 11000) {
-      return res.status(409).json({ error: "Duplicate URL" });
-    }
-
-    console.error(err);
-    res.status(500).json({ error: "Insert failed" });
-  }
-});
-
 app.delete("/urls/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { collection = "new-posts" } = req.query;
+    const collection = req.query.collection || "new-posts";
 
-    const db = await getDb();
-    const col = db.collection(collection);
+    if (!ALLOWED_TABLES.has(collection)) {
+      return res.status(400).json({ error: "Invalid collection" });
+    }
 
-    const result = await col.deleteOne({ _id: new ObjectId(id) });
+    const result = await query(`DELETE FROM "${collection}" WHERE id = $1`, [
+      id,
+    ]);
 
-    if (result.deletedCount === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: "Not found" });
     }
 

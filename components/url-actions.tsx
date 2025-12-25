@@ -6,12 +6,12 @@ import { useState } from "react"
 
 interface UrlActionsProps {
   urlId: string
-  stage: "pending" | "extracted" | "complete"
+  status: "pending" | "extracted" | "complete"
   collection: string
   onActionComplete: () => void
 }
 
-export function UrlActions({ urlId, stage, collection, onActionComplete }: UrlActionsProps) {
+export function UrlActions({ urlId, status, collection, onActionComplete }: UrlActionsProps) {
   const [isLoading, setIsLoading] = useState(false)
 
   const handleDelete = async () => {
@@ -36,14 +36,14 @@ export function UrlActions({ urlId, stage, collection, onActionComplete }: UrlAc
 
   return (
     <div className="flex gap-2">
-      {stage === "pending" && (
+      {status === "pending" && (
         <Button size="sm" variant="outline" disabled>
           <Cpu className="h-3.5 w-3.5" />
           Extract
         </Button>
       )}
 
-      {stage === "extracted" && (
+      {status === "extracted" && (
         <Button size="sm" variant="outline" disabled>
           <CheckCircle className="h-3.5 w-3.5" />
           Complete

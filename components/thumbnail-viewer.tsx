@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Eye } from "lucide-react"
+import Image from "next/image"
 
 interface ThumbnailViewerProps {
   thumbUrl: string | null
@@ -33,13 +34,16 @@ export function ThumbnailViewer({ thumbUrl, title }: ThumbnailViewerProps) {
           <DialogHeader>
             <DialogTitle>{title || "Thumbnail"}</DialogTitle>
           </DialogHeader>
-          <div className="flex justify-center">
-            <img
-              src={thumbUrl || "/placeholder.svg"}
+          <div className="relative w-full max-w-xl h-96">
+            <Image
+              src={thumbUrl}
               alt={title || "Thumbnail"}
-              className="max-h-96 max-w-full rounded-lg object-contain"
+              fill
+              unoptimized
+              className="rounded-lg object-contain"
             />
           </div>
+
         </DialogContent>
       </Dialog>
     </>

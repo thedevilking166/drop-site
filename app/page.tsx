@@ -13,11 +13,11 @@ import { PaginationControls } from "@/components/pagination-controls"
 import { UrlActions } from "@/components/url-actions"
 
 type UrlRecord = {
-  _id: string
+  id: string
   post_url: string
   title: string
-  thumb_url: string
-  stage: "pending" | "extracted" | "complete"
+  thumbnail_url: string
+  status: "pending" | "extracted" | "complete"
   createdAt: string
 }
 
@@ -27,17 +27,32 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [selectedCollection, setSelectedCollection] = useState("new-posts")
+  const [statusFilter, setStatusFilter] = useState<"all" | UrlRecord["status"]>("all")
 
   const fetchUrls = async (page = 1) => {
     setIsLoading(true)
+
+    const params = new URLSearchParams({
+      collection: selectedCollection,
+      page: String(page),
+      limit: "10",
+    })
+
+    if (statusFilter !== "all") {
+      params.append("status", statusFilter)
+    }
+
     try {
-      const response = await fetch(`http://localhost:4000/urls?collection=${selectedCollection}&page=${page}&limit=10`)
+      const response = await fetch(
+        `http://localhost:4000/urls?${params.toString()}`
+      )
       const data = await response.json()
+
       setUrls(data.items || [])
       setTotalPages(data.pages || 1)
       setCurrentPage(page)
-    } catch (error) {
-      console.error("Error fetching URLs:", error)
+    } catch (err) {
+      console.error("Fetch failed:", err)
     } finally {
       setIsLoading(false)
     }
@@ -45,21 +60,21 @@ export default function Home() {
 
   useEffect(() => {
     fetchUrls(1)
-  }, [selectedCollection])
+  }, [selectedCollection, statusFilter])
 
-  const getStatusBadge = (stage: UrlRecord["stage"]) => {
+  const getStatusBadge = (status: UrlRecord["status"]) => {
     const variants = {
       pending: { color: "bg-slate-800 text-slate-300 border-slate-700", icon: Clock },
       extracted: { color: "bg-amber-950 text-amber-300 border-amber-800", icon: Download },
       complete: { color: "bg-emerald-950 text-emerald-300 border-emerald-800", icon: CheckCircle },
     }
 
-    const { color, icon: Icon } = variants[stage]
+    const { color, icon: Icon } = variants[status]
 
     return (
       <Badge variant="outline" className={cn("gap-1.5 font-medium", color)}>
         <Icon className="h-3 w-3" />
-        {stage.charAt(0).toUpperCase() + stage.slice(1)}
+        {status}
       </Badge>
     )
   }
@@ -80,15 +95,30 @@ export default function Home() {
                 {urls.length} {urls.length === 1 ? "URL" : "URLs"} on this page
               </CardDescription>
             </div>
+            <div className="flex gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setCurrentPage(1)
+                  setStatusFilter(e.target.value as "all" | UrlRecord["status"])
+                }}
+                className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm"
+              >
+                <option value="all">All</option>
+                <option value="pending">Pending</option>
+                <option value="extracted">Extracted</option>
+                <option value="complete">Complete</option>
+              </select>
 
-            <CollectionSelector
-              value={selectedCollection}
-              onValueChange={(value) => {
-                setCurrentPage(1)
-                setSelectedCollection(value)
-              }}
-              disabled={isLoading}
-            />
+              <CollectionSelector
+                value={selectedCollection}
+                onValueChange={(value) => {
+                  setCurrentPage(1)
+                  setSelectedCollection(value)
+                }}
+                disabled={isLoading}
+              />
+            </div>
           </CardHeader>
 
           <CardContent>
@@ -97,9 +127,8 @@ export default function Home() {
                 <Loader2 className="h-8 w-8 animate-spin text-slate-600" />
               </div>
             ) : urls.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-slate-400 text-lg mb-2">No URLs tracked yet</p>
-                <p className="text-slate-600">Add your first URL above to get started</p>
+              <div className="text-center py-8 text-slate-400">
+                No URLs match this filter
               </div>
             ) : (
               <div className="rounded-lg border border-slate-800 overflow-x-auto">
@@ -115,16 +144,19 @@ export default function Home() {
                   </TableHeader>
                   <TableBody>
                     {urls.map((record) => (
-                      <TableRow key={record._id} className="hover:bg-slate-800/50 border-slate-800">
+                      <TableRow key={record.id} className="hover:bg-slate-800/50 border-slate-800">
                         <TableCell className="font-medium">
                           <code className="text-blue-400 text-sm bg-slate-800 px-2 py-1 rounded">
                             {extractTopicId(record.post_url) || "N/A"}
                           </code>
                         </TableCell>
                         <TableCell>
-                          <ThumbnailViewer thumbUrl={record.thumb_url} title={record.title} />
+                          <ThumbnailViewer
+                            thumbUrl={`${record.thumbnail_url}?Authorization=4_003c76cc198d29d0000000000_01c14dc8_aff6e6_acct_MRi-RH_Pzj5F5WeO8NTWQidlvrI=`}
+                            title={record.title}
+                          />
                         </TableCell>
-                        <TableCell>{getStatusBadge(record.stage)}</TableCell>
+                        <TableCell>{getStatusBadge(record.status)}</TableCell>
                         <TableCell>
                           {record.title ? (
                             <a
@@ -141,8 +173,8 @@ export default function Home() {
                         </TableCell>
                         <TableCell className="text-right">
                           <UrlActions
-                            urlId={record._id}
-                            stage={record.stage}
+                            urlId={record.id}
+                            status={record.status}
                             collection={selectedCollection}
                             onActionComplete={() => fetchUrls(currentPage)}
                           />
