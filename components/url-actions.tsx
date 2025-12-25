@@ -18,7 +18,7 @@ export function UrlActions({ urlId, status, collection, onActionComplete }: UrlA
     setIsLoading(true)
     try {
       const response = await fetch(
-        `http://localhost:4000/urls/${urlId}?collection=${collection}`,
+        `/api/urls/${urlId}?collection=${collection}`,
         { method: "DELETE" }
       )
 
