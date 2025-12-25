@@ -44,7 +44,7 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        `http://localhost:4000/urls?${params.toString()}`
+        `/api/urls?${params.toString()}`
       )
       const data = await response.json()
 
