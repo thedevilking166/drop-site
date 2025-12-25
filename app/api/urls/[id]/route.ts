@@ -1,8 +1,12 @@
+import type { NextRequest } from "next/server";
+
 export async function DELETE(
-  req: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
-  const { searchParams } = new URL(req.url);
+  const { id } = await context.params;
+
+  const { searchParams } = new URL(request.url);
   const collection = searchParams.get("collection");
 
   if (!collection) {
@@ -12,7 +16,7 @@ export async function DELETE(
   }
 
   const backendRes = await fetch(
-    `http://localhost:4000/urls/${params.id}?collection=${collection}`,
+    `http://localhost:4000/urls/${id}?collection=${collection}`,
     { method: "DELETE" }
   );
 
