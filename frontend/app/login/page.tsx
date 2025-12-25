@@ -35,8 +35,6 @@ export default function LoginPage() {
                 return
             }
 
-            const data = await response.json()
-            localStorage.setItem("authToken", data.token)
             router.push("/")
         } catch (err) {
             setError(err instanceof Error ? err.message : "An error occurred")

@@ -63,9 +63,16 @@ export default function Home() {
     fetchUrls(1)
   }, [selectedCollection, statusFilter])
 
-  const handleLogout = () => {
-    localStorage.removeItem("authToken")
-    router.push("/login")
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', {
+        method: 'POST',
+      });
+      router.push("/login");
+    } catch (err) {
+      console.error('Logout failed:', err);
+      router.push("/login");
+    }
   }
 
   const getStatusBadge = (status: UrlRecord["status"]) => {
