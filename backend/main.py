@@ -12,6 +12,15 @@ import os
 from dotenv import load_dotenv
 from bson import ObjectId
 from bs4 import BeautifulSoup
+import logging
+
+logger = logging.getLogger("extract_url_task")
+logger.setLevel(logging.INFO)
+# Optional: add file handler to save logs to a file
+file_handler = logging.FileHandler("extract_url_task.log")
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 load_dotenv()
 
@@ -72,53 +81,54 @@ def update_last_login(admin_id: ObjectId):
     )
 
 def extract_url_task(url_id: int, collection: str):
-    doc = db[collection].find_one({"_id": ObjectId(url_id)})
-    if not doc or not doc.get("post_url"):
+    try:
+        obj_id = ObjectId(url_id)
+    except Exception as e:
+        logger.error(f"Invalid URL ID {url_id}: {e}")
         return
 
+    doc = db[collection].find_one({"_id": obj_id})
+    if not doc:
+        logger.warning(f"Document not found for ID {url_id} in collection {collection}")
+        return
+
+    if not doc.get("post_url"):
+        logger.warning(f"No post_url found for document {url_id}")
+        db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
+        return
+
+    logger.info(f"Starting extraction for URL ID {url_id}: {doc['post_url']}")
     try:
         res = requests.get(doc["post_url"], timeout=10)
         res.raise_for_status()
-    except Exception:
-        db[collection].update_one(
-            {"_id": ObjectId(url_id)},
-            {"$set": {"stage": "error"}}
-        )
+    except requests.RequestException as e:
+        logger.error(f"Request failed for URL ID {url_id}: {e}")
+        db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
         return
 
     soup = BeautifulSoup(res.text, "html.parser")
     main = soup.find("div", class_="cPost_contentWrap")
 
     if not main:
-        db[collection].update_one(
-            {"_id": ObjectId(url_id)},
-            {"$set": {"stage": "error"}}
-        )
+        logger.warning(f"Main content div not found for URL ID {url_id}")
+        db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
         return
 
-    links = [
-        a["href"]
-        for a in main.find_all("a", href=True)
-    ]
-
-    images = [
-        img.get("data-src") or img.get("src")
-        for img in main.find_all("img", class_="ipsImage")
-        if img.get("data-src") or img.get("src")
-    ]
+    links = [a["href"] for a in main.find_all("a", href=True)]
+    images = [img.get("data-src") or img.get("src") for img in main.find_all("img", class_="ipsImage") if img.get("data-src") or img.get("src")]
 
     db[collection].update_one(
-        {"_id": ObjectId(url_id)},
+        {"_id": obj_id},
         {
             "$set": {
                 "extracted_links": links,
                 "extracted_images": images,
                 "stage": "extracted",
-                "extracted_at": datetime.utcnow()
+                "extracted_at": datetime.utcnow(),
             }
         }
     )
-
+    logger.info(f"Extraction completed for URL ID {url_id}: {len(links)} links, {len(images)} images")
 
 @app.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest, background_tasks: BackgroundTasks):
