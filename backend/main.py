@@ -2,13 +2,16 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
-from typing import Optional, Literal
-import asyncpg
-import bcrypt
+from typing import Optional
+from pymongo import MongoClient
 from jose import jwt, JWTError
+import requests
 from datetime import datetime, timedelta
+import bcrypt
 import os
 from dotenv import load_dotenv
+from bson import ObjectId
+from bs4 import BeautifulSoup
 
 load_dotenv()
 
@@ -17,44 +20,29 @@ app = FastAPI()
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to your frontend URL in production
+    allow_origins=["*"],  # Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Database connection pool
-DATABASE_URL = os.getenv("DATABASE_URL")
+# ENV
+MONGODB_URI = os.getenv("MONGODB_URI")
 JWT_SECRET = os.getenv("JWT_SECRET")
-ALLOWED_TABLES = {"new-posts", "new-p-posts"}
+
+ALLOWED_COLLECTIONS = {"new-posts", "new-p-posts", "old-posts", "new-s-posts", "new-o-posts"}
 
 security = HTTPBearer()
 
-# Global connection pool
-db_pool = None
+client = MongoClient(MONGODB_URI)
+db = client["drop-db"]
 
-
-@app.on_event("startup")
-async def startup():
-    global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL, ssl="require")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    await db_pool.close()
-
-
-# Pydantic models
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
-
 class LoginResponse(BaseModel):
     token: str
-    admin: dict
-
 
 class URLResponse(BaseModel):
     items: list
@@ -63,87 +51,102 @@ class URLResponse(BaseModel):
     limit: int
     pages: int
 
-
-# Helper functions
-async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify JWT token for protected routes"""
+async def verify_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
     try:
-        token = credentials.credentials
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(
+            credentials.credentials,
+            JWT_SECRET,
+            algorithms=["HS256"]
+        )
         return payload
-    except JWTError:  # Changed from jwt.ExpiredSignatureError
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
-# Background task example
-async def update_last_login(admin_id: int):
-    """Background task to update last login time"""
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE admins SET last_login_at = now() WHERE id = $1",
-            admin_id
-        )
+def update_last_login(admin_id: ObjectId):
+    db.admins.update_one(
+        {"_id": admin_id},
+        {"$set": {"last_login_at": datetime.utcnow()}}
+    )
 
+def extract_url_task(url_id: int, collection: str):
+    doc = db[collection].find_one({"_id": ObjectId(url_id)})
+    if not doc or not doc.get("post_url"):
+        return
 
-# Routes
-@app.post("/login", response_model=LoginResponse)
-async def login(data: LoginRequest, background_tasks: BackgroundTasks):
     try:
-        async with db_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT id, email, password_hash, role, is_active
-                FROM admins
-                WHERE email = $1
-                LIMIT 1
-                """,
-                data.email
-            )
-
-        if not row:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-
-        if not row["is_active"]:
-            raise HTTPException(status_code=403, detail="Account disabled")
-
-        # Verify password
-        password_valid = bcrypt.checkpw(
-            data.password.encode('utf-8'),
-            row["password_hash"].encode('utf-8')
+        res = requests.get(doc["post_url"], timeout=10)
+        res.raise_for_status()
+    except Exception:
+        db[collection].update_one(
+            {"_id": ObjectId(url_id)},
+            {"$set": {"stage": "error"}}
         )
-        
-        if not password_valid:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+        return
 
-        # Create JWT token
-        token = jwt.encode(
-            {
-                "adminId": str(row["id"]),
-                "email": row["email"],
-                "role": row["role"],
-                "exp": datetime.utcnow() + timedelta(days=1)
-            },
-            JWT_SECRET,
-            algorithm="HS256"
+    soup = BeautifulSoup(res.text, "html.parser")
+    main = soup.find("div", class_="cPost_contentWrap")
+
+    if not main:
+        db[collection].update_one(
+            {"_id": ObjectId(url_id)},
+            {"$set": {"stage": "error"}}
         )
+        return
 
-        # Update last login in background
-        background_tasks.add_task(update_last_login, row["id"])
+    links = [
+        a["href"]
+        for a in main.find_all("a", href=True)
+    ]
 
-        return {
-            "token": token,
-            "admin": {
-                "id": row["id"],
-                "email": row["email"],
-                "role": row["role"]
+    images = [
+        img.get("data-src") or img.get("src")
+        for img in main.find_all("img", class_="ipsImage")
+        if img.get("data-src") or img.get("src")
+    ]
+
+    db[collection].update_one(
+        {"_id": ObjectId(url_id)},
+        {
+            "$set": {
+                "extracted_links": links,
+                "extracted_images": images,
+                "stage": "extracted",
+                "extracted_at": datetime.utcnow()
             }
         }
+    )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"LOGIN ERROR: {e}")
-        raise HTTPException(status_code=500, detail="Login failed")
+
+@app.post("/login", response_model=LoginResponse)
+async def login(data: LoginRequest, background_tasks: BackgroundTasks):
+    admin = db.admins.find_one({"email": data.email})
+
+    if not admin or not bcrypt.checkpw(
+        data.password.encode(),
+        admin["password_hash"].encode()
+    ):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not admin.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account disabled")
+
+    token = jwt.encode(
+        {
+            "adminId": str(admin["_id"]),
+            "email": admin["email"],
+            "role": admin["role"],
+            "exp": datetime.utcnow() + timedelta(days=1),
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+
+    background_tasks.add_task(update_last_login, admin["_id"])
+
+    return {"token": token}
 
 
 @app.get("/urls", response_model=URLResponse)
@@ -153,41 +156,32 @@ async def get_urls(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100)
 ):
-    if collection not in ALLOWED_TABLES:
+    if collection not in ALLOWED_COLLECTIONS:
         raise HTTPException(status_code=400, detail="Invalid collection")
 
-    offset = (page - 1) * limit
-    
-    where_clause = ""
-    params = []
-    
+    query = {}
     if status and status != "all":
-        where_clause = "WHERE status = $1"
-        params.append(status)
+        query["stage"] = status
 
-    # Build queries
-    params_items = params + [limit, offset]
-    items_query = f"""
-        SELECT *
-        FROM "{collection}"
-        {where_clause}
-        LIMIT ${len(params) + 1}
-        OFFSET ${len(params) + 2}
-    """
-    
-    count_query = f"""
-        SELECT COUNT(*)
-        FROM "{collection}"
-        {where_clause}
-    """
+    skip = (page - 1) * limit
 
-    async with db_pool.acquire() as conn:
-        items = await conn.fetch(items_query, *params_items)
-        total_row = await conn.fetchrow(count_query, *params)
-        total = total_row["count"]
+    cursor = (
+        db[collection]
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .sort("id", -1)
+    )
+
+    items = []
+    for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        items.append(doc)
+
+    total = db[collection].count_documents(query)
 
     return {
-        "items": [dict(item) for item in items],
+        "items": items,
         "total": total,
         "page": page,
         "limit": limit,
@@ -196,23 +190,46 @@ async def get_urls(
 
 
 @app.delete("/urls/{url_id}")
-async def delete_url(
-    url_id: int,
-    collection: str = Query("new-posts")
-):
-    if collection not in ALLOWED_TABLES:
+async def delete_url(url_id: str, collection: str = Query("new-posts")):
+    if collection not in ALLOWED_COLLECTIONS:
         raise HTTPException(status_code=400, detail="Invalid collection")
 
-    async with db_pool.acquire() as conn:
-        result = await conn.execute(
-            f'DELETE FROM "{collection}" WHERE id = $1',
-            url_id
-        )
+    result = db[collection].delete_one({"_id": ObjectId(url_id)})
 
-    if result == "DELETE 0":
+    if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
 
     return {"success": True}
+
+@app.post("/urls/extract")
+async def reprocess_url(
+    url_id: str,
+    background_tasks: BackgroundTasks,
+    collection: str = Query("new-posts"),
+):
+    if collection not in ALLOWED_COLLECTIONS:
+        raise HTTPException(status_code=400, detail="Invalid collection")
+    
+    try:
+        obj_id = ObjectId(url_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL ID")
+
+    doc = db[collection].find_one({"_id": obj_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="URL not found")
+    
+    if doc.get("stage") in {"extracting", "extracted", "complete"}:
+        return {"success": True, "message": "Already extracting or processed"}
+
+    db[collection].update_one(
+        {"_id": obj_id},
+        {"$set": {"stage": "extracting"}}
+    )
+
+    background_tasks.add_task(extract_url_task, obj_id, collection)
+
+    return {"success": True, "message": "Extraction started"}
 
 # Health check
 @app.get("/health")

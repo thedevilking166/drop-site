@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Loader2, Clock, Download, CheckCircle, SquareArrowOutUpRight, LogOut } from "lucide-react"
+import { Loader2, Clock, Download, CheckCircle, SquareArrowOutUpRight, LogOut, AlertCircle, Cpu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { extractTopicId } from "@/lib/utils"
 import { CollectionSelector } from "@/components/collection-selector"
@@ -15,12 +15,14 @@ import { UrlActions } from "@/components/url-actions"
 import { useRouter } from "next/navigation"
 
 type UrlRecord = {
-  id: string
-  post_url: string
+  _id: string
   title: string
-  thumbnail_url: string
-  status: "pending" | "extracted" | "complete"
-  createdAt: string
+  thumb_url: string
+  post_url: string
+  stage: "pending" | "extracting" | "extracted" | "complete" | "error"
+  extracted_images: string[]
+  extracted_links: string[]
+  topic_id: string
 }
 
 export default function Home() {
@@ -29,7 +31,7 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [selectedCollection, setSelectedCollection] = useState("new-posts")
-  const [statusFilter, setStatusFilter] = useState<"all" | UrlRecord["status"]>("all")
+  const [statusFilter, setStatusFilter] = useState<"all" | UrlRecord["stage"]>("all")
   const router = useRouter()
 
   const fetchUrls = async (page = 1) => {
@@ -42,7 +44,7 @@ export default function Home() {
     })
 
     if (statusFilter !== "all") {
-      params.append("status", statusFilter)
+      params.append("stage", statusFilter)
     }
 
     try {
@@ -75,22 +77,42 @@ export default function Home() {
     }
   }
 
-  const getStatusBadge = (status: UrlRecord["status"]) => {
+  const getStatusBadge = (status: UrlRecord["stage"] = "pending") => {
     const variants = {
-      pending: { color: "bg-slate-800 text-slate-300 border-slate-700", icon: Clock },
-      extracted: { color: "bg-amber-950 text-amber-300 border-amber-800", icon: Download },
-      complete: { color: "bg-emerald-950 text-emerald-300 border-emerald-800", icon: CheckCircle },
-    }
+      pending: {
+        color: "bg-slate-800 text-slate-300 border-slate-700",
+        icon: Clock,
+      },
+      extracting: {
+        color: "bg-blue-950 text-blue-300 border-blue-800",
+        icon: Cpu, // can use a spinner icon if you want
+      },
+      extracted: {
+        color: "bg-amber-950 text-amber-300 border-amber-800",
+        icon: Download,
+      },
+      complete: {
+        color: "bg-emerald-950 text-emerald-300 border-emerald-800",
+        icon: CheckCircle,
+      },
+      error: {
+        color: "bg-red-950 text-red-300 border-red-800",
+        icon: AlertCircle,
+      },
+    } as const
 
-    const { color, icon: Icon } = variants[status]
+    const safeStatus = status && status in variants ? status : "pending"
+    const { color, icon: Icon } = variants[safeStatus]
 
     return (
       <Badge variant="outline" className={cn("gap-1.5 font-medium", color)}>
         <Icon className="h-3 w-3" />
-        {status}
+        {safeStatus}
       </Badge>
     )
   }
+
+
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -119,7 +141,7 @@ export default function Home() {
                 value={statusFilter}
                 onChange={(e) => {
                   setCurrentPage(1)
-                  setStatusFilter(e.target.value as "all" | UrlRecord["status"])
+                  setStatusFilter(e.target.value as "all" | UrlRecord["stage"])
                 }}
                 className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm w-full sm:w-auto"
               >
@@ -161,7 +183,7 @@ export default function Home() {
                   </TableHeader>
                   <TableBody>
                     {urls.map((record) => (
-                      <TableRow key={record.id} className="hover:bg-slate-800/50 border-slate-800">
+                      <TableRow key={record._id} className="hover:bg-slate-800/50 border-slate-800">
                         <TableCell className="font-medium text-xs sm:text-sm">
                           <code className="text-blue-400 text-xs sm:text-sm bg-slate-800 px-2 py-1 rounded">
                             {extractTopicId(record.post_url) || "N/A"}
@@ -169,11 +191,11 @@ export default function Home() {
                         </TableCell>
                         <TableCell>
                           <ThumbnailViewer
-                            thumbUrl={`${record.thumbnail_url}?Authorization=4_003c76cc198d29d0000000000_01c14dc8_aff6e6_acct_MRi-RH_Pzj5F5WeO8NTWQidlvrI=`}
+                            thumbUrl={`${record.thumb_url}`}
                             title={record.title}
                           />
                         </TableCell>
-                        <TableCell className="text-xs sm:text-sm">{getStatusBadge(record.status)}</TableCell>
+                        <TableCell className="text-xs sm:text-sm">{getStatusBadge(record.stage)}</TableCell>
                         <TableCell className="text-xs sm:text-sm">
                           {record.title ? (
                             <a
@@ -190,8 +212,8 @@ export default function Home() {
                         </TableCell>
                         <TableCell className="text-right text-xs sm:text-sm">
                           <UrlActions
-                            urlId={record.id}
-                            status={record.status}
+                            urlId={record._id}
+                            status={record.stage}
                             collection={selectedCollection}
                             onActionComplete={() => fetchUrls(currentPage)}
                           />

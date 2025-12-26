@@ -20,8 +20,8 @@ export function CollectionSelector({ value, onValueChange, disabled }: Collectio
                     <SelectItem value="new-posts">New Posts</SelectItem>
                     <SelectItem value="old-posts">Old Posts</SelectItem>
                     <SelectItem value="new-p-posts">New P Posts</SelectItem>
-                    <SelectItem value="old-p-posts">Old P Posts</SelectItem>
-                    <SelectItem value="semi-posts">Semi Posts</SelectItem>
+                    <SelectItem value="new-o-posts">Old P Posts</SelectItem>
+                    <SelectItem value="new-s-posts">Semi Posts</SelectItem>
                 </SelectContent>
             </Select>
         </div>
