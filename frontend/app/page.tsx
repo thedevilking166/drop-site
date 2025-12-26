@@ -191,7 +191,7 @@ export default function Home() {
                         </TableCell>
                         <TableCell>
                           <ThumbnailViewer
-                            thumbUrl={`${record.thumb_url}`}
+                            topicId={record.topic_id}
                             title={record.title}
                           />
                         </TableCell>

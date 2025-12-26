@@ -96,10 +96,16 @@ def extract_url_task(url_id: int, collection: str):
         logger.warning(f"No post_url found for document {url_id}")
         db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
         return
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/118.0.0.0 Safari/537.36"
+    }
 
     logger.info(f"Starting extraction for URL ID {url_id}: {doc['post_url']}")
     try:
-        res = requests.get(doc["post_url"], timeout=10)
+        res = requests.get(doc["post_url"], headers=headers, timeout=10)
         res.raise_for_status()
     except requests.RequestException as e:
         logger.error(f"Request failed for URL ID {url_id}: {e}")
@@ -157,7 +163,6 @@ async def login(data: LoginRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(update_last_login, admin["_id"])
 
     return {"token": token}
-
 
 @app.get("/urls", response_model=URLResponse)
 async def get_urls(

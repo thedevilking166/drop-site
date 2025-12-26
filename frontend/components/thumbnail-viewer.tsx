@@ -7,20 +7,14 @@ import { Eye } from "lucide-react"
 import Image from "next/image"
 
 interface ThumbnailViewerProps {
-  thumbUrl: string | null
+  topicId: string | number
   title: string
 }
 
-export function ThumbnailViewer({ thumbUrl, title }: ThumbnailViewerProps) {
+export function ThumbnailViewer({ topicId, title }: ThumbnailViewerProps) {
   const [open, setOpen] = useState(false)
 
-  if (!thumbUrl) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-sm">No thumbnail</span>
-      </div>
-    )
-  }
+  const thumbPath = `/assets/${topicId}_thumb.jpg`
 
   return (
     <>
@@ -36,14 +30,13 @@ export function ThumbnailViewer({ thumbUrl, title }: ThumbnailViewerProps) {
           </DialogHeader>
           <div className="relative w-full max-w-xl h-96">
             <Image
-              src={thumbUrl}
+              src={thumbPath}
               alt={title || "Thumbnail"}
               fill
               unoptimized
               className="rounded-lg object-contain"
             />
           </div>
-
         </DialogContent>
       </Dialog>
     </>
