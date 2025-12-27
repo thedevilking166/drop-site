@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Loader2, Clock, Download, CheckCircle, SquareArrowOutUpRight, LogOut, AlertCircle, Cpu } from "lucide-react"
+import { Loader2, Clock, CheckCircle, SquareArrowOutUpRight, LogOut, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { extractTopicId } from "@/lib/utils"
 import { CollectionSelector } from "@/components/collection-selector"
@@ -19,7 +19,7 @@ type UrlRecord = {
   title: string
   thumb_url: string
   post_url: string
-  stage: "pending" | "extracting" | "extracted" | "complete" | "error"
+  stage: "pending" | "checked" | "rejected"
   extracted_images: string[]
   extracted_links: string[]
   topic_id: string
@@ -82,22 +82,17 @@ export default function Home() {
       pending: {
         color: "bg-slate-800 text-slate-300 border-slate-700",
         icon: Clock,
+        label: "Pending",
       },
-      extracting: {
-        color: "bg-blue-950 text-blue-300 border-blue-800",
-        icon: Cpu, // can use a spinner icon if you want
-      },
-      extracted: {
-        color: "bg-amber-950 text-amber-300 border-amber-800",
-        icon: Download,
-      },
-      complete: {
+      checked: {
         color: "bg-emerald-950 text-emerald-300 border-emerald-800",
         icon: CheckCircle,
+        label: "Checked",
       },
-      error: {
+      rejected: {
         color: "bg-red-950 text-red-300 border-red-800",
-        icon: AlertCircle,
+        icon: XCircle,
+        label: "Rejected",
       },
     } as const
 
@@ -147,8 +142,8 @@ export default function Home() {
               >
                 <option value="all">All</option>
                 <option value="pending">Pending</option>
-                <option value="extracted">Extracted</option>
-                <option value="complete">Complete</option>
+                <option value="checked">Checked</option>
+                <option value="rejected">Rejected</option>
               </select>
 
               <CollectionSelector

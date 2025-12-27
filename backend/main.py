@@ -5,22 +5,11 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from pymongo import MongoClient
 from jose import jwt, JWTError
-import requests
 from datetime import datetime, timedelta
 import bcrypt
 import os
 from dotenv import load_dotenv
 from bson import ObjectId
-from bs4 import BeautifulSoup
-import logging
-
-logger = logging.getLogger("extract_url_task")
-logger.setLevel(logging.INFO)
-# Optional: add file handler to save logs to a file
-file_handler = logging.FileHandler("extract_url_task.log")
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
 
 load_dotenv()
 
@@ -60,6 +49,9 @@ class URLResponse(BaseModel):
     limit: int
     pages: int
 
+class UpdateStageRequest(BaseModel):
+    stage: str
+
 async def verify_token(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
@@ -73,68 +65,11 @@ async def verify_token(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-
 def update_last_login(admin_id: ObjectId):
     db.admins.update_one(
         {"_id": admin_id},
         {"$set": {"last_login_at": datetime.utcnow()}}
     )
-
-def extract_url_task(url_id: int, collection: str):
-    try:
-        obj_id = ObjectId(url_id)
-    except Exception as e:
-        logger.error(f"Invalid URL ID {url_id}: {e}")
-        return
-
-    doc = db[collection].find_one({"_id": obj_id})
-    if not doc:
-        logger.warning(f"Document not found for ID {url_id} in collection {collection}")
-        return
-
-    if not doc.get("post_url"):
-        logger.warning(f"No post_url found for document {url_id}")
-        db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
-        return
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/118.0.0.0 Safari/537.36"
-    }
-
-    logger.info(f"Starting extraction for URL ID {url_id}: {doc['post_url']}")
-    try:
-        res = requests.get(doc["post_url"], headers=headers, timeout=10)
-        res.raise_for_status()
-    except requests.RequestException as e:
-        logger.error(f"Request failed for URL ID {url_id}: {e}")
-        db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
-        return
-
-    soup = BeautifulSoup(res.text, "html.parser")
-    main = soup.find("div", class_="cPost_contentWrap")
-
-    if not main:
-        logger.warning(f"Main content div not found for URL ID {url_id}")
-        db[collection].update_one({"_id": obj_id}, {"$set": {"stage": "error"}})
-        return
-
-    links = [a["href"] for a in main.find_all("a", href=True)]
-    images = [img.get("data-src") or img.get("src") for img in main.find_all("img", class_="ipsImage") if img.get("data-src") or img.get("src")]
-
-    db[collection].update_one(
-        {"_id": obj_id},
-        {
-            "$set": {
-                "extracted_links": links,
-                "extracted_images": images,
-                "stage": "extracted",
-                "extracted_at": datetime.utcnow(),
-            }
-        }
-    )
-    logger.info(f"Extraction completed for URL ID {url_id}: {len(links)} links, {len(images)} images")
 
 @app.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest, background_tasks: BackgroundTasks):
@@ -167,7 +102,7 @@ async def login(data: LoginRequest, background_tasks: BackgroundTasks):
 @app.get("/urls", response_model=URLResponse)
 async def get_urls(
     collection: str = Query("new-posts"),
-    status: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100)
 ):
@@ -175,8 +110,8 @@ async def get_urls(
         raise HTTPException(status_code=400, detail="Invalid collection")
 
     query = {}
-    if status and status != "all":
-        query["stage"] = status
+    if stage and stage != "all":
+        query["stage"] = stage
 
     skip = (page - 1) * limit
 
@@ -203,48 +138,31 @@ async def get_urls(
         "pages": (total + limit - 1) // limit
     }
 
-
-@app.delete("/urls/{url_id}")
-async def delete_url(url_id: str, collection: str = Query("new-posts")):
-    if collection not in ALLOWED_COLLECTIONS:
-        raise HTTPException(status_code=400, detail="Invalid collection")
-
-    result = db[collection].delete_one({"_id": ObjectId(url_id)})
-
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    return {"success": True}
-
-@app.post("/urls/extract")
-async def reprocess_url(
+@app.put("/urls/{url_id}")
+async def update_url_stage(
     url_id: str,
-    background_tasks: BackgroundTasks,
-    collection: str = Query("new-posts"),
+    payload: UpdateStageRequest,
+    collection: str = Query("new-posts")
 ):
     if collection not in ALLOWED_COLLECTIONS:
         raise HTTPException(status_code=400, detail="Invalid collection")
-    
-    try:
-        obj_id = ObjectId(url_id)
-    except Exception:
+
+    if not ObjectId.is_valid(url_id):
         raise HTTPException(status_code=400, detail="Invalid URL ID")
 
-    doc = db[collection].find_one({"_id": obj_id})
-    if not doc:
-        raise HTTPException(status_code=404, detail="URL not found")
-    
-    if doc.get("stage") in {"extracting", "extracted", "complete"}:
-        return {"success": True, "message": "Already extracting or processed"}
-
-    db[collection].update_one(
-        {"_id": obj_id},
-        {"$set": {"stage": "extracting"}}
+    result = db[collection].update_one(
+        {"_id": ObjectId(url_id)},
+        {"$set": {"stage": payload.stage}}
     )
 
-    background_tasks.add_task(extract_url_task, obj_id, collection)
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="URL not found")
 
-    return {"success": True, "message": "Extraction started"}
+    return {
+        "success": True,
+        "id": url_id,
+        "stage": payload.stage
+    }
 
 # Health check
 @app.get("/health")

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-export async function DELETE(
+export async function PUT(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -15,14 +15,20 @@ export async function DELETE(
     });
   }
 
+  const body = await request.json();
+
   const backendRes = await fetch(
     `http://localhost:4000/urls/${id}?collection=${collection}`,
-    { method: "DELETE" }
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
   );
 
-  const body = await backendRes.text();
+  const text = await backendRes.text();
 
-  return new Response(body, {
+  return new Response(text, {
     status: backendRes.status,
     headers: { "Content-Type": "application/json" },
   });

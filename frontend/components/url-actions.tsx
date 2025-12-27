@@ -1,12 +1,15 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Trash2, Cpu, CheckCircle } from "lucide-react"
+import {
+  CheckCircle,
+  XCircle
+} from "lucide-react"
 import { useState } from "react"
 
 interface UrlActionsProps {
   urlId: string
-  status: "pending" | "extracting" | "extracted" | "complete" | "error"
+  status: "pending" | "checked" | "rejected"
   collection: string
   onActionComplete: () => void
 }
@@ -17,36 +20,20 @@ export function UrlActions({
   collection,
   onActionComplete,
 }: UrlActionsProps) {
-  const [loading, setLoading] = useState<"delete" | "extract" | null>(null)
+  const [loading, setLoading] = useState<"delete" | "update" | null>(null)
 
-  const handleDelete = async () => {
-    setLoading("delete")
+  const updateStage = async (stage: "checked" | "rejected") => {
+    setLoading("update")
     try {
       const res = await fetch(
         `/api/urls/${urlId}?collection=${collection}`,
-        { method: "DELETE" }
-      )
-      if (!res.ok) throw new Error("Delete failed")
-      onActionComplete()
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  const handleExtract = async () => {
-    setLoading("extract")
-    try {
-      const res = await fetch(
-        `/api/urls/extract?collection=${collection}`,
         {
-          method: "POST",
+          method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url_id: urlId }),
+          body: JSON.stringify({ stage }),
         }
       )
-      if (!res.ok) throw new Error("Extract failed")
+      if (!res.ok) throw new Error("Update failed")
       onActionComplete()
     } catch (err) {
       console.error(err)
@@ -56,49 +43,47 @@ export function UrlActions({
   }
 
   return (
-    <div className="flex gap-2">
+    <div className="flex gap-2 items-center">
+      {/* Stage selector only for pending */}
       {status === "pending" && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleExtract}
-          disabled={loading !== null}
-          className="gap-1.5"
-        >
-          <Cpu className="h-3.5 w-3.5" />
-          Extract
+        <div className="relative">
+          <select
+            disabled={loading !== null}
+            onChange={(e) => {
+              const value = e.target.value as "checked" | "rejected"
+              if (value) updateStage(value)
+            }}
+            defaultValue=""
+            className="h-8 rounded-md border border-slate-700 bg-slate-900 px-2 pr-6 text-sm text-slate-300 focus:outline-none"
+          >
+            <option value="" disabled>
+              Update status
+            </option>
+            <option value="checked">Checked</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      )}
+
+      {/* Static badges for non-pending */}
+      {status === "checked" && (
+        <Button size="sm" variant="outline" disabled className="gap-1.5">
+          <CheckCircle className="h-3.5 w-3.5" />
+          Checked
         </Button>
       )}
 
-      {status === "extracted" && (
+      {status === "rejected" && (
         <Button
           size="sm"
           variant="outline"
           disabled
-          className="gap-1.5"
+          className="gap-1.5 border-red-800 text-red-300"
         >
-          <Cpu className="h-3.5 w-3.5" />
-          Extracted
+          <XCircle className="h-3.5 w-3.5" />
+          Rejected
         </Button>
       )}
-
-      {status === "complete" && (
-        <Button size="sm" variant="outline" disabled className="gap-1.5">
-          <CheckCircle className="h-3.5 w-3.5" />
-          Complete
-        </Button>
-      )}
-
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleDelete}
-        disabled={loading !== null}
-        className="gap-1.5 hover:bg-red-950 hover:text-red-300 hover:border-red-700"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-        Delete
-      </Button>
     </div>
   )
 }
